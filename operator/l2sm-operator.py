@@ -12,7 +12,7 @@ import pymysql
 
 #UPDATE DATABASE WHEN NETWORK IS CREATED
 @kopf.on.create('virtual-networks')
-def create_vn(spec, name, logger, **kwargs):
+def create_vn(spec, name, namespace, logger, **kwargs):
     db = pymysql.connect(host="163.117.140.254",user="l2sm",password="l2sm;",db="L2SM")
     cur = db.cursor()
     network = spec.get('name')
@@ -32,7 +32,7 @@ def pod_vn(body, name, namespace, logger, annotations, **kwargs):
 
     #VERIFY IF NETWORK IS PRESENT IN THE CLUSTER
     api = client.CustomObjectsApi()
-    items = api.list_cluster_custom_object('l2sm.k8s.conf.io', 'v1', 'virtual-networks').get('items')
+    items = api.list_namespaced_custom_object('l2sm.k8s.conf.io', 'v1', namespace, 'virtual-networks').get('items')
     resources = []
     for i in items:
       resources.append(i['metadata']['name'])

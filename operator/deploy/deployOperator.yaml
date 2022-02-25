@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: l2sm-operator-deployment
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: l2sm-opt
+  template:
+    metadata:
+      labels:
+        app: l2sm-opt
+    spec:
+      serviceAccountName: l2sm-operator
+      containers:
+      - image: lewisfelix24/l2sm-operator:latest
+        name: l2sm-opt-pod
+
