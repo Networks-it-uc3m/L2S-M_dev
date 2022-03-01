@@ -10,14 +10,16 @@ from random import randrange
 from kubernetes import client, config
 import pymysql
 
+ip = "127.0.0.1"
+
 #UPDATE DATABASE WHEN NETWORK IS CREATED
 @kopf.on.create('virtual-networks')
 def create_vn(spec, name, namespace, logger, **kwargs):
-    db = pymysql.connect(host="163.117.140.254",user="l2sm",password="l2sm;",db="L2SM")
+    #db = pymysql.connect(host="163.117.140.254",user="l2sm",password="l2sm;",db="L2SM")
+    db = pymysql.connect(host=ip,user="l2sm",password="l2sm;",db="L2SM")
     cur = db.cursor()
-    network = spec.get('name')
-    id = spec.get('id')
-    sql = "INSERT INTO networks (network, id, metadata) VALUES ('%s', '%s', '%s')" % (network.strip(), id.strip(), name.strip())
+    id = secrets.token_hex(32)
+    sql = "INSERT INTO networks (network, id) VALUES ('%s', '%s')" % (name.strip(), id.strip())
     cur.execute(sql)
     db.commit()
     db.close()
@@ -44,11 +46,10 @@ def pod_vn(body, name, namespace, logger, annotations, **kwargs):
     ret = v1.read_namespaced_pod(name, namespace)
     node = body['spec']['nodeName']
 
+    # db = pymysql.connect(host="163.117.140.254",user="l2sm",password="l2sm;",db="L2SM")
+    db = pymysql.connect(host=ip,user="l2sm",password="l2sm;",db="L2SM")
     nsql = "SELECT * FROM interfaces WHERE node = '%s' AND network = '-1'" % (node.strip())
-
-    db = pymysql.connect(host="163.117.140.254",user="l2sm",password="l2sm;",db="L2SM")
     cur = db.cursor()
-
     cur.execute(nsql)
     data = cur.fetchone()
     if not data:
@@ -68,20 +69,25 @@ def pod_vn(body, name, namespace, logger, annotations, **kwargs):
     #GET NETWORK NAME
     for j in items:
       if network in j['metadata']['name']:
-        networkN = j['spec']['name']
+        idsql = "SELECT * FROM networks WHERE network = '%s'" % (network.strip())
+        cur.execute(idsql)
+        retrieve = cur.fetchone()
+        networkN = data[0].strip()
+        break
 
-    sql = "UPDATE interfaces SET network = '%s', pod = '%s' WHERE interface = '%s' AND node = '%s'" % (networkN.strip(), name, data[0], node)
+    sql = "UPDATE interfaces SET network = '%s', pod = '%s' WHERE interface = '%s' AND node = '%s'" % (networkN, name, data[0], node)
     cur.execute(sql)
     db.commit()
     db.close()
     #HERE GOES SDN, THIS IS WHERE THE FUN BEGINS
-    logger.info(f"Pod {name} attached to network {network} with name {networkN}")
+    logger.info(f"Pod {name} attached to network {network} with id {networkN}")
 
 
 #UPDATE DATABASE WHEN POD IS DELETED
 @kopf.on.delete('pods.v1', annotations={'l2sm.k8s.conf.io/virtual-networks': kopf.PRESENT})
 def dpod_vn(name, logger, **kwargs):
-    db = pymysql.connect(host="163.117.140.254",user="l2sm",password="l2sm;",db="L2SM")
+    # db = pymysql.connect(host="163.117.140.254",user="l2sm",password="l2sm;",db="L2SM")
+    db = pymysql.connect(host=ip,user="l2sm",password="l2sm;",db="L2SM")
     cur = db.cursor()
     sql = "UPDATE interfaces SET network = '-1', pod = '' WHERE pod = '%s'" % (name)
     cur.execute(sql)
@@ -92,9 +98,10 @@ def dpod_vn(name, logger, **kwargs):
 #UPDATE DATABASE WHEN NETWORK IS DELETED
 @kopf.on.delete('virtual-networks')
 def delete_vn(spec, name, logger, **kwargs):
-    db = pymysql.connect(host="163.117.140.254",user="l2sm",password="l2sm;",db="L2SM")
+    # db = pymysql.connect(host="163.117.140.254",user="l2sm",password="l2sm;",db="L2SM")
+    db = pymysql.connect(host=ip,user="l2sm",password="l2sm;",db="L2SM")
     cur = db.cursor()
-    sql = "DELETE FROM networks WHERE id = '%s'" % (spec.get('id').strip())
+    sql = "DELETE FROM networks WHERE network = '%s'" % (name)
     cur.execute(sql)
     db.commit()
     db.close()
