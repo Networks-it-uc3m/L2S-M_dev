@@ -12,10 +12,24 @@ import pymysql
 
 ip = "127.0.0.1"
 
+#POPULATE DATABASE ENTRIES WHEN A NEW L2SM POD IS CREATED (A NEW NODE APPEARS)
+@kopf.on.create('pods.v1', labels={'l2sm-component': 'l2-ps'})
+def build_db(body, logger, annotations, **kwargs):
+    db = pymysql.connect(host=ip,user="l2sm",password="l2sm;",db="L2SM")
+    cur = db.cursor()
+    values = []
+    #MODIFY THE END VALUE TO ADD MORE INTERFACES
+    for i in range(1,5):
+      values.append(['vpod'+str(i), body['spec']['nodeName'], '-1', ''])
+    sql = "INSERT INTO interfaces (interface, node, network, pod) VALUES (%s, %s, %s, %s)"
+    cur.executemany(sql, values)
+    db.commit()
+    db.close()
+    logger.info(f"Node {body['spec']['nodeName']} has been registered in the operator")
+
 #UPDATE DATABASE WHEN NETWORK IS CREATED
 @kopf.on.create('virtual-networks')
 def create_vn(spec, name, namespace, logger, **kwargs):
-    #db = pymysql.connect(host="163.117.140.254",user="l2sm",password="l2sm;",db="L2SM")
     db = pymysql.connect(host=ip,user="l2sm",password="l2sm;",db="L2SM")
     cur = db.cursor()
     id = secrets.token_hex(32)
@@ -46,7 +60,6 @@ def pod_vn(body, name, namespace, logger, annotations, **kwargs):
     ret = v1.read_namespaced_pod(name, namespace)
     node = body['spec']['nodeName']
 
-    # db = pymysql.connect(host="163.117.140.254",user="l2sm",password="l2sm;",db="L2SM")
     db = pymysql.connect(host=ip,user="l2sm",password="l2sm;",db="L2SM")
     nsql = "SELECT * FROM interfaces WHERE node = '%s' AND network = '-1'" % (node.strip())
     cur = db.cursor()
@@ -69,10 +82,10 @@ def pod_vn(body, name, namespace, logger, annotations, **kwargs):
     #GET NETWORK NAME
     for j in items:
       if network in j['metadata']['name']:
-        idsql = "SELECT * FROM networks WHERE network = '%s'" % (network.strip())
+        idsql = "SELECT id FROM networks WHERE network = '%s'" % (network.strip())
         cur.execute(idsql)
         retrieve = cur.fetchone()
-        networkN = data[0].strip()
+        networkN = retrieve[0].strip()
         break
 
     sql = "UPDATE interfaces SET network = '%s', pod = '%s' WHERE interface = '%s' AND node = '%s'" % (networkN, name, data[0], node)
@@ -86,7 +99,6 @@ def pod_vn(body, name, namespace, logger, annotations, **kwargs):
 #UPDATE DATABASE WHEN POD IS DELETED
 @kopf.on.delete('pods.v1', annotations={'l2sm.k8s.conf.io/virtual-networks': kopf.PRESENT})
 def dpod_vn(name, logger, **kwargs):
-    # db = pymysql.connect(host="163.117.140.254",user="l2sm",password="l2sm;",db="L2SM")
     db = pymysql.connect(host=ip,user="l2sm",password="l2sm;",db="L2SM")
     cur = db.cursor()
     sql = "UPDATE interfaces SET network = '-1', pod = '' WHERE pod = '%s'" % (name)
@@ -98,7 +110,6 @@ def dpod_vn(name, logger, **kwargs):
 #UPDATE DATABASE WHEN NETWORK IS DELETED
 @kopf.on.delete('virtual-networks')
 def delete_vn(spec, name, logger, **kwargs):
-    # db = pymysql.connect(host="163.117.140.254",user="l2sm",password="l2sm;",db="L2SM")
     db = pymysql.connect(host=ip,user="l2sm",password="l2sm;",db="L2SM")
     cur = db.cursor()
     sql = "DELETE FROM networks WHERE network = '%s'" % (name)
@@ -106,3 +117,15 @@ def delete_vn(spec, name, logger, **kwargs):
     db.commit()
     db.close()
     logger.info(f"Network has been deleted")
+
+#DELETE DATABASE ENTRIES WHEN A NEW L2SM POD IS DELETED (A NEW NODE GETS OUT OF THE CLUSTER)
+@kopf.on.delete('pods.v1', labels={'l2sm-component': 'l2-ps'})
+def build_db(body, logger, annotations, **kwargs):
+    db = pymysql.connect(host=ip,user="l2sm",password="l2sm;",db="L2SM")
+    cur = db.cursor()
+    sql = "DELETE FROM interfaces WHERE node = '%s'" % (body['spec']['nodeName'])
+    cur.execute(sql)
+    db.commit()
+    db.close()
+    logger.info(f"Node {body['spec']['nodeName']} has been deleted from the cluster")
+

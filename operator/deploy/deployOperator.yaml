@@ -8,11 +8,11 @@ spec:
     type: Recreate
   selector:
     matchLabels:
-      app: l2sm-opt
+      l2sm-component: l2sm-opt
   template:
     metadata:
       labels:
-        app: l2sm-opt
+        l2sm-component: l2sm-opt
     spec:
       serviceAccountName: l2sm-operator
       containers:
@@ -33,4 +33,5 @@ spec:
         - name: mysql-persistent-storage
           persistentVolumeClaim:
             claimName: mysql-pv-claim
-      nodeName: rex
+      nodeSelector:
+        node-role.kubernetes.io/master: ""
