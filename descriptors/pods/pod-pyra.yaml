@@ -3,7 +3,7 @@ kind: Pod
 metadata:
   name: pod-pyra
   annotations:
-    l2sm.k8s.conf.io/virtual-networks: hello-world
+    l2sm.k8s.conf.io/virtual-networks: my-first-network
 spec:
   containers: 
   - name: pod-pyra
