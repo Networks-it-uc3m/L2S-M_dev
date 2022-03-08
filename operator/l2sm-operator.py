@@ -9,6 +9,8 @@ from subprocess import CalledProcessError
 from random import randrange
 from kubernetes import client, config
 import pymysql
+import random
+import time
 
 ip = "127.0.0.1"
 
@@ -17,6 +19,12 @@ ip = "127.0.0.1"
 def build_db(body, logger, annotations, **kwargs):
     db = pymysql.connect(host=ip,user="l2sm",password="l2sm;",db="L2SM")
     cur = db.cursor()
+    #CREATE TABLES IF THEY DO NOT EXIST
+    table1 = "CREATE TABLE IF NOT EXISTS networks (network TEXT NOT NULL, id TEXT NOT NULL);"
+    table2 = "CREATE TABLE IF NOT EXISTS interfaces (interface TEXT NOT NULL, node TEXT NOT NULL, network TEXT, pod TEXT);"
+    cur.execute(table1)
+    cur.execute(table2)
+    db.commit()
     values = []
     #MODIFY THE END VALUE TO ADD MORE INTERFACES
     for i in range(1,5):
@@ -44,6 +52,7 @@ def create_vn(spec, name, namespace, logger, **kwargs):
 @kopf.on.create('pods.v1', annotations={'l2sm.k8s.conf.io/virtual-networks': kopf.PRESENT})
 def pod_vn(body, name, namespace, logger, annotations, **kwargs):
     #GET NETWORK IN THE DESCRIPTOR
+    time.sleep(random.uniform(0,5)) #Make sure the database is not consulted at the same time to avoid overlaping
     network = annotations.get('l2sm.k8s.conf.io/virtual-networks')
 
     #VERIFY IF NETWORK IS PRESENT IN THE CLUSTER
@@ -120,7 +129,7 @@ def delete_vn(spec, name, logger, **kwargs):
 
 #DELETE DATABASE ENTRIES WHEN A NEW L2SM POD IS DELETED (A NEW NODE GETS OUT OF THE CLUSTER)
 @kopf.on.delete('pods.v1', labels={'l2sm-component': 'l2-ps'})
-def build_db(body, logger, annotations, **kwargs):
+def remove_node(body, logger, annotations, **kwargs):
     db = pymysql.connect(host=ip,user="l2sm",password="l2sm;",db="L2SM")
     cur = db.cursor()
     sql = "DELETE FROM interfaces WHERE node = '%s'" % (body['spec']['nodeName'])
