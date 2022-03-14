@@ -53,9 +53,7 @@ def create_vn(spec, name, namespace, logger, **kwargs):
 def pod_vn(body, name, namespace, logger, annotations, **kwargs):
     #GET NETWORK IN THE DESCRIPTOR
     #IN QUARANTINE: SLOWER THAN MULTUS!!!!!
-    #time.sleep(random.uniform(0,5)) #Make sure the database is not consulted at the same time to avoid overlaping
-
-   #TO DO: Tratar las redes como lista (Ya están tratadas)
+    time.sleep(random.uniform(0,0.8)) #Make sure the database is not consulted at the same time to avoid overlaping
 
     network = annotations.get('l2sm.k8s.conf.io/virtual-networks').split(",")
     #VERIFY IF NETWORK IS PRESENT IN THE CLUSTER
