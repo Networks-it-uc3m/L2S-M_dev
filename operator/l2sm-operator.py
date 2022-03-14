@@ -52,17 +52,24 @@ def create_vn(spec, name, namespace, logger, **kwargs):
 @kopf.on.create('pods.v1', annotations={'l2sm.k8s.conf.io/virtual-networks': kopf.PRESENT})
 def pod_vn(body, name, namespace, logger, annotations, **kwargs):
     #GET NETWORK IN THE DESCRIPTOR
-    time.sleep(random.uniform(0,5)) #Make sure the database is not consulted at the same time to avoid overlaping
-    network = annotations.get('l2sm.k8s.conf.io/virtual-networks')
+    #IN QUARANTINE: SLOWER THAN MULTUS!!!!!
+    #time.sleep(random.uniform(0,5)) #Make sure the database is not consulted at the same time to avoid overlaping
 
+   #TO DO: Tratar las redes como lista (Ya están tratadas)
+
+    network = annotations.get('l2sm.k8s.conf.io/virtual-networks').split(",")
     #VERIFY IF NETWORK IS PRESENT IN THE CLUSTER
     api = client.CustomObjectsApi()
     items = api.list_namespaced_custom_object('l2sm.k8s.conf.io', 'v1', namespace, 'virtual-networks').get('items')
     resources = []
     for i in items:
       resources.append(i['metadata']['name'])
-    if network not in resources:
-      raise kopf.PermanentError("The pod could not be attached to network " + network + " since it was not defined in the cluster")
+
+    for k in range(len(network)):
+      network[k] = network[k].strip()
+      if network[k] not in resources:
+        raise kopf.PermanentError("The pod could not be attached the network since network " + network[k] + " was not defined in the cluster")
+
 
     #CHECK IF NODE HAS FREE VIRTUAL INTERFACES LEFT
     v1 = client.CoreV1Api()
@@ -73,36 +80,40 @@ def pod_vn(body, name, namespace, logger, annotations, **kwargs):
     nsql = "SELECT * FROM interfaces WHERE node = '%s' AND network = '-1'" % (node.strip())
     cur = db.cursor()
     cur.execute(nsql)
-    data = cur.fetchone()
-    if not data:
+    data = cur.fetchall()
+    if not data or len(data)<len(network):
       db.close()
       raise kopf.PermanentError("l2sm could not deploy the pod: Node " + node.strip() + "has no free interfaces left")
 
     #IF THERE IS ALREADY A MULTUS ANNOTATION, APPEND IT TO THE END.
-    interface_to_attach = data[0]
-    if 'k8s.v1.cni.cncf.io/networks' not in ret.metadata.annotations:
-      ret.metadata.annotations['k8s.v1.cni.cncf.io/networks'] = data[0].strip()
-    else:
-      ret.metadata.annotations['k8s.v1.cni.cncf.io/networks'].append(", " + data[0].strip())
+    interface_to_attach = []
+    for interface in data[0:len(network)]:
+      interface_to_attach.append(interface[0].strip())
+      if 'k8s.v1.cni.cncf.io/networks' not in ret.metadata.annotations:
+        ret.metadata.annotations['k8s.v1.cni.cncf.io/networks'] = interface[0].strip()
+      else:
+        ret.metadata.annotations['k8s.v1.cni.cncf.io/networks'] = ret.metadata.annotations['k8s.v1.cni.cncf.io/networks'] + ", " + interface[0].strip()
 
     #PATCH NETWORK WITH ANNOTATION
     v1.patch_namespaced_pod(name, namespace, ret)
 
-    #GET NETWORK NAME
-    for j in items:
-      if network in j['metadata']['name']:
-        idsql = "SELECT id FROM networks WHERE network = '%s'" % (network.strip())
-        cur.execute(idsql)
-        retrieve = cur.fetchone()
-        networkN = retrieve[0].strip()
-        break
+    #GET NETWORK ID'S
+    #for j in items:
+    #  if network in j['metadata']['name']:
+    #    idsql = "SELECT id FROM networks WHERE network = '%s'" % (network.strip())
+    #    cur.execute(idsql)
+    #    retrieve = cur.fetchone()
+    #    networkN = retrieve[0].strip()
+    #    break
 
-    sql = "UPDATE interfaces SET network = '%s', pod = '%s' WHERE interface = '%s' AND node = '%s'" % (networkN, name, data[0], node)
-    cur.execute(sql)
+    for m in range(len(network)):
+      sql = "UPDATE interfaces SET network = '%s', pod = '%s' WHERE interface = '%s' AND node = '%s'" % (network[m], name, interface_to_attach[m], node)
+      cur.execute(sql)
+
     db.commit()
     db.close()
     #HERE GOES SDN, THIS IS WHERE THE FUN BEGINS
-    logger.info(f"Pod {name} attached to network {network} with id {networkN}")
+    logger.info(f"Pod {name} attached to network {network}")
 
 
 #UPDATE DATABASE WHEN POD IS DELETED
