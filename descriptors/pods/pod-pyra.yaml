@@ -3,12 +3,12 @@ kind: Pod
 metadata:
   name: pod-pyra
   annotations:
-    l2sm.k8s.conf.io/virtual-networks: my-first-network
+    k8s.v1.cni.cncf.io/networks: my-second-network
 spec:
   containers: 
   - name: pod-pyra
     command: ["/bin/ash", "-c", "trap : TERM INT; sleep infinity & wait"]
-    image: lewisfelix24/testing-pod:rpi
+    image: alpine:latest
     securityContext:
       capabilities:
         add: ["NET_ADMIN"]

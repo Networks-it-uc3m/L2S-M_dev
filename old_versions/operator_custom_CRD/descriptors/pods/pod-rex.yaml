@@ -3,7 +3,7 @@ kind: Pod
 metadata:
   name: pod-rex
   annotations:
-    k8s.v1.cni.cncf.io/networks: my-first-network, my-second-network
+    l2sm.k8s.conf.io/virtual-networks: my-first-network, my-second-network, my-third-network
 spec:
   containers: 
   - name: pod-rex

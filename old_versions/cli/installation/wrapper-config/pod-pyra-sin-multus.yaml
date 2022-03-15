@@ -1,15 +1,16 @@
 apiVersion: v1
 kind: Pod
 metadata:
-  name: pod-rex
-  annotations:
-    k8s.v1.cni.cncf.io/networks: my-first-network, my-second-network
+  name: pod-pyra-2
+#  annotations:
+#    k8s.v1.cni.cncf.io/networks: vpod1@vpod1
 spec:
   containers: 
-  - name: pod-rex
+  - name: pod-pyra-2
     command: ["/bin/ash", "-c", "trap : TERM INT; sleep infinity & wait"]
-    image: alpine:latest
+    image: lewisfelix24/testing-pod:rpi
+    imagePullPolicy: IfNotPresent
     securityContext:
       capabilities:
         add: ["NET_ADMIN"]
-  nodeName: rex
+  nodeName: pyra

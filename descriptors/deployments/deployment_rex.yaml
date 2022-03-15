@@ -12,7 +12,7 @@ spec:
       labels:
         test: rex
       annotations:
-        l2sm.k8s.conf.io/virtual-networks: my-first-network
+        k8s.v1.cni.cncf.io/networks: my-first-network
     spec:
       containers: 
       - name: ping-amd

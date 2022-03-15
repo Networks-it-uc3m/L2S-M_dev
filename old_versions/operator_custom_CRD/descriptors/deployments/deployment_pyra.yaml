@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: ping-l2sm-arm
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       test: pyra
@@ -12,7 +12,7 @@ spec:
       labels:
         test: pyra
       annotations:
-        k8s.v1.cni.cncf.io/networks: my-first-network
+        l2sm.k8s.conf.io/virtual-networks: my-first-network, my-second-network
     spec:
       containers: 
       - name: ping-arm

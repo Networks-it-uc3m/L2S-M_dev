@@ -35,9 +35,8 @@ def build_db(body, logger, annotations, **kwargs):
     db.close()
     logger.info(f"Node {body['spec']['nodeName']} has been registered in the operator")
 
-#UPDATE DATABASE WHEN NETWORK IS CREATED, I.E: IS A MULTUS CRD WITH OUR DUMMY INTERFACE PRESENT IN ITS CONFIG
-#@kopf.on.create('NetworkAttachmentDefinition', field="spec.config['device']", value='l2sm-vNet')
-@kopf.on.create('NetworkAttachmentDefinition', when=lambda spec, **_: '"device": "l2sm-vNet"' in spec['config'])
+#UPDATE DATABASE WHEN NETWORK IS CREATED
+@kopf.on.create('virtual-networks')
 def create_vn(spec, name, namespace, logger, **kwargs):
     db = pymysql.connect(host=ip,user="l2sm",password="l2sm;",db="L2SM")
     cur = db.cursor()
@@ -50,33 +49,25 @@ def create_vn(spec, name, namespace, logger, **kwargs):
 
 
 #ASSIGN POD TO NETWORK (TRIGGERS ONLY IF ANNOTATION IS PRESENT)
-@kopf.on.create('pods.v1', annotations={'k8s.v1.cni.cncf.io/networks': kopf.PRESENT})
+@kopf.on.create('pods.v1', annotations={'l2sm.k8s.conf.io/virtual-networks': kopf.PRESENT})
 def pod_vn(body, name, namespace, logger, annotations, **kwargs):
-    #GET MULTUS INTERFACES IN THE DESCRIPTOR
+    #GET NETWORK IN THE DESCRIPTOR
     #IN QUARANTINE: SLOWER THAN MULTUS!!!!!
     time.sleep(random.uniform(0,0.8)) #Make sure the database is not consulted at the same time to avoid overlaping
 
-    multusInt = annotations.get('k8s.v1.cni.cncf.io/networks').split(",")
+    network = annotations.get('l2sm.k8s.conf.io/virtual-networks').split(",")
     #VERIFY IF NETWORK IS PRESENT IN THE CLUSTER
     api = client.CustomObjectsApi()
-    items = api.list_namespaced_custom_object('k8s.cni.cncf.io', 'v1', namespace, 'network-attachment-definitions').get('items')
+    items = api.list_namespaced_custom_object('l2sm.k8s.conf.io', 'v1', namespace, 'virtual-networks').get('items')
     resources = []
-    # NETWORK POSITION IN ANNOTATION
-    network = []
-
-    #FIND OUR NETWORKS IN MULTUS
     for i in items:
-      if '"device": "l2sm-vNet"' in i['spec']['config']:
-        resources.append(i['metadata']['name'])
+      resources.append(i['metadata']['name'])
 
-    for k in range(len(multusInt)):
-      multusInt[k] = multusInt[k].strip()
-      if multusInt[k] in resources:
-        network.append(k)
+    for k in range(len(network)):
+      network[k] = network[k].strip()
+      if network[k] not in resources:
+        raise kopf.PermanentError("The pod could not be attached the network since network " + network[k] + " was not defined in the cluster")
 
-    #IF THERE ARE NO NETWORKS, LET MULTUS HANDLE THIS
-    if not network:
-      return
 
     #CHECK IF NODE HAS FREE VIRTUAL INTERFACES LEFT
     v1 = client.CoreV1Api()
@@ -94,15 +85,12 @@ def pod_vn(body, name, namespace, logger, annotations, **kwargs):
 
     #IF THERE IS ALREADY A MULTUS ANNOTATION, APPEND IT TO THE END.
     interface_to_attach = []
-    network_array = []
-    j = 0
     for interface in data[0:len(network)]:
-      network_array.append(multusInt[network[j]])
-      multusInt[network[j]] = interface[0].strip()
       interface_to_attach.append(interface[0].strip())
-      j = j + 1
-
-    ret.metadata.annotations['k8s.v1.cni.cncf.io/networks'] = ', '.join(multusInt)
+      if 'k8s.v1.cni.cncf.io/networks' not in ret.metadata.annotations:
+        ret.metadata.annotations['k8s.v1.cni.cncf.io/networks'] = interface[0].strip()
+      else:
+        ret.metadata.annotations['k8s.v1.cni.cncf.io/networks'] = ret.metadata.annotations['k8s.v1.cni.cncf.io/networks'] + ", " + interface[0].strip()
 
     #PATCH NETWORK WITH ANNOTATION
     v1.patch_namespaced_pod(name, namespace, ret)
@@ -117,17 +105,17 @@ def pod_vn(body, name, namespace, logger, annotations, **kwargs):
     #    break
 
     for m in range(len(network)):
-      sql = "UPDATE interfaces SET network = '%s', pod = '%s' WHERE interface = '%s' AND node = '%s'" % (network_array[m], name, interface_to_attach[m], node)
+      sql = "UPDATE interfaces SET network = '%s', pod = '%s' WHERE interface = '%s' AND node = '%s'" % (network[m], name, interface_to_attach[m], node)
       cur.execute(sql)
 
     db.commit()
     db.close()
     #HERE GOES SDN, THIS IS WHERE THE FUN BEGINS
-    logger.info(f"Pod {name} attached to network {network_array}")
+    logger.info(f"Pod {name} attached to network {network}")
 
 
 #UPDATE DATABASE WHEN POD IS DELETED
-@kopf.on.delete('pods.v1', annotations={'k8s.v1.cni.cncf.io/networks': kopf.PRESENT})
+@kopf.on.delete('pods.v1', annotations={'l2sm.k8s.conf.io/virtual-networks': kopf.PRESENT})
 def dpod_vn(name, logger, **kwargs):
     db = pymysql.connect(host=ip,user="l2sm",password="l2sm;",db="L2SM")
     cur = db.cursor()
@@ -138,7 +126,7 @@ def dpod_vn(name, logger, **kwargs):
     logger.info(f"Pod {name} removed")
 
 #UPDATE DATABASE WHEN NETWORK IS DELETED
-@kopf.on.delete('NetworkAttachmentDefinition', when=lambda spec, **_: '"device": "l2sm-vNet"' in spec['config'])
+@kopf.on.delete('virtual-networks')
 def delete_vn(spec, name, logger, **kwargs):
     db = pymysql.connect(host=ip,user="l2sm",password="l2sm;",db="L2SM")
     cur = db.cursor()

@@ -1,12 +1,12 @@
 apiVersion: v1
 kind: Pod
 metadata:
-  name: pod-rex
+  name: pod-rex-no-net
   annotations:
-    k8s.v1.cni.cncf.io/networks: my-first-network, my-second-network
+    k8s.v1.cni.cncf.io/networks: vpod4
 spec:
   containers: 
-  - name: pod-rex
+  - name: pod-rex-no-net
     command: ["/bin/ash", "-c", "trap : TERM INT; sleep infinity & wait"]
     image: alpine:latest
     securityContext:
