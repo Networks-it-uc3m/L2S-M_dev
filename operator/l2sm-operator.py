@@ -27,7 +27,7 @@ def build_db(body, logger, annotations, **kwargs):
     db.commit()
     values = []
     #MODIFY THE END VALUE TO ADD MORE INTERFACES
-    for i in range(1,5):
+    for i in range(1,11):
       values.append(['vpod'+str(i), body['spec']['nodeName'], '-1', ''])
     sql = "INSERT INTO interfaces (interface, node, network, pod) VALUES (%s, %s, %s, %s)"
     cur.executemany(sql, values)
