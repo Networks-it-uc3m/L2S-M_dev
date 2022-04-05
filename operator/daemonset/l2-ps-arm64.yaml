@@ -24,7 +24,7 @@ spec:
         effect: NoSchedule
       containers:
       - name: l2-ps
-        image: lewisfelix24/ovs-pod-ml2s:rpi
+        image: lewisfelix24/l2sm-ovs:latest
         command: ["/bin/sh", "-c"]
         args: ["ovsdb-server --remote=punix:/var/run/openvswitch/db.sock --remote=db:Open_vSwitch,Open_vSwitch,manager_options --pidfile=/var/run/openvswitch/ovsdb-server.pid 
          --detach && ovs-vsctl --db=unix:/var/run/openvswitch/db.sock --no-wait init && ovs-vswitchd --pidfile=/var/run/openvswitch/ovs-vswitchd.pid --detach && 
