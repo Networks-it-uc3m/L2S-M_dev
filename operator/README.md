@@ -73,7 +73,7 @@ kubectl create -f $HOME/L2S-M/operator/deploy/config/
 
 3. Create the Kubernetes Persistent Volume by using the following kubectl command:
  ```bash
-kubectl create -f $HOME/L2S-M/operator/deploy/config/
+kubectl create -f $HOME/L2S-M/operator/deploy/mysql/
 ```
 
 4. After the previous preparation, you can deploy the operator in your cluster using the YAML deployment file:
