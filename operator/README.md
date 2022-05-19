@@ -15,7 +15,7 @@ To use the script, execute the following command in every of the nodes of your c
 ```bash
 sudo ./generate_vxlans.bash
 ```
-If you want to create the VXLANs manually, you can use the following code instead for every VXLAN in most Linux distribuitons:
+If you want to create the VXLANs manually, you can use the following code instead for every VXLAN in most Linux distributions:
 
 ```bash
 sudo ip link add [vxlan_Name] type vxlan id [id] dev [interface_to_use] dstport [dst_port]
