@@ -4,19 +4,24 @@ This guide details the necessary prerequisites to install the L2S-M Kubernetes o
 
 # Prerequisites
 
-1. In order to start with the installation of L2S-M, it is necessary to set up the IP tunnel overlay between the nodes that you want to interconnect. In this case, this repository contains an script to generate up to 10 VxLANs, although any IP tunnelling mechanism can be suitable to be used. To use the script, execute the following command in every of the nodes of your cluster:
+1. Clone the L2S-M repository in your host.  This guide will assume that all commands are executed in the directory where L2S-M was downloaded.
+
+2. In order to start with the installation of L2S-M, it is necessary to set up the IP tunnel overlay between the nodes that you want to interconnect. To do so, **it is necessary to have 10 VXLAN interfaces (named vxlan1 up to vxlan10) in the host namespace. **
+
+This repository contains an script to generate the necessary 10 VXLANs with their respective name, although any IP tunnelling mechanism can be suitable to be used. 
+
+To use the script, execute the following command in every of the nodes of your cluster:
 
 ```bash
 sudo ./generate_vxlans.bash
 ```
-
-If you want to create the VxLANs manually, you can use the following code instead for every VxLAN:
+If you want to create the VXLANs manually, you can use the following code instead for every VXLAN in most Linux distribuitons:
 
 ```bash
 sudo ip link add [vxlan_Name] type vxlan id [id] dev [interface_to_use] dstport [dst_port]
 ```
 
-To configure the VXLAN tunnels, you can use the following command for every pair of interfaces you want to configure in their respective nodes:
+To configure the VXLAN tunnels between neighbouring nodes, you can use the following command for every pair of interfaces you want to configure in their respective nodes:
 
 ```bash
 sudo bridge fdb append to 00:00:00:00:00:00 dst [dst_IP] dev [vxlan_Name]
@@ -37,18 +42,25 @@ sudo bridge fdb append to 00:00:00:00:00:00 dst [dst_IP] dev [vxlan_Name]
 | vxlan9 |  1969|
 | vxlan10 |  1970|
 
-2. Create the vEth virtual interfaces in every host of the cluster by using the following script
+3. Create the vEth virtual interfaces in every host of the cluster by using the following script
 ```bash
-sudo $HOME/L2S-M/operator/deploy/interfaces/configure_interfaces.bash
+sudo ./L2S-M/operator/deploy/interfaces/configure_interfaces.bash
 ```
-3. Install the Multus CNI Plugin in your K8s cluster
+4. Install the Multus CNI Plugin in your K8s cluster. For more information on how to install Multus in your cluster, check their [official GitHub repository](https://github.com/k8snetworkplumbingwg/multus-cni).
+5. The host-device cni plugin must be able to be used in your cluster. If it Is not present in your K8s distribution, you can find how to install it in your K8s cluster in their [official GitHub repository](https://github.com/containernetworking/plugins).
+6. Your K8s Controller node must be able to deploy K8s pods for the operator to work. Remove its master and control-plane taints using the following command:
+```bash
+kubectl taint nodes --all node-role.kubernetes.io/control-plane- node-role.kubernetes.io/master-
+```
 
+ 
 ## Install L2S-M
 
 1. Create the virtual interface definitions using the following command:
  ```bash
-kubectl create -f $HOME/L2S-M/K8s/interface_definitions
+kubectl create -f ./L2S-M/K8s/interfaces_definitions
 ```
+
 **NOTE:** If you are using interfaces whose definitions are not present in the virtual interfaces definitions in the folder, you must create the corresponding virtual definition in the same fashion as the VXLANs. For example, if you want to use a VPN interface called "tun0", first write the descriptor "tun0.yaml":
  ```yaml
 apiVersion: "k8s.cni.cncf.io/v1"
@@ -68,25 +80,25 @@ kubectl create -f tun0.yaml
 ```
 2. Create the Kubernetes account Service Account and apply their configuration by applying the following command:
  ```bash
-kubectl create -f $HOME/L2S-M/operator/deploy/config/
+kubectl create -f ./L2S-M/operator/deploy/config/
 ```
 
 3. Create the Kubernetes Persistent Volume by using the following kubectl command:
  ```bash
-kubectl create -f $HOME/L2S-M/operator/deploy/mysql/
+kubectl create -f ./L2S-M/operator/deploy/mysql/
 ```
 
 4. After the previous preparation, you can deploy the operator in your cluster using the YAML deployment file:
  ```bash
-kubectl create -f $HOME/L2S-M/operator/deployOperator.yaml
+kubectl create -f ./L2S-M/operator/deploy/deployOperator.yaml
 ```
 
  You can check that the deployment was successful if the pod enters the "running" state using the *kubectl get pods* command.
 
 5. Deploy the virtual OVS Daemonset using the following .yaml:
 ```bash
-kubectl create -f $HOME/L2S-M/operator/daemonset
+kubectl create -f ./L2S-M/operator/daemonset
 ```
 **NOTE:** If you have introduced new interfaces in your cluster besides the vxlans, modify the descriptor to introduce those as well. (Modify both MULTUS annotations and the commands to attach the interface to the OVS switch). 
 
-You are all set!
+You are all set! If you want to learn how to create virtual networks and use them in your applications, [check the following section of the repository] (https://github.com/Networks-it-uc3m/L2S-M/tree/main/descriptors)
