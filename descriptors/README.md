@@ -1,7 +1,7 @@
 # L2S-M Ping Pong example
 This section of L2S-M documentation details an example that you can use in order to learn how to create virtual networks and attach pods to them. To do so, we are going to deploy a simple ping-pong application, where we will deploy two pods attached into a virtual network and test their connectivity.
 
-All the neccessary descriptors can be found in the './L2S-M/descriptors' directory of this repository.
+All the neccessary descriptors can be found in the *'./L2S-M/descriptors'* directory of this repository.
 
 ### Creating our first virtual network
 
@@ -19,7 +19,7 @@ spec:
       "device": "l2sm-vNet"
     }'
 ```
-As you can see, L2S-M virtual networks are a [NetworkAttachmentDefinition] (https://github.com/k8snetworkplumbingwg/multus-cni/blob/master/docs/quickstart.md) from MULTUS. In order to build a new network, just changin its name in the "metadata" field will define a new network. 
+As you can see, L2S-M virtual networks are a [NetworkAttachmentDefinition](https://github.com/k8snetworkplumbingwg/multus-cni/blob/master/docs/quickstart.md) from MULTUS. In order to build a new network, just changin its name in the "metadata" field will define a new network. 
 
 **Warning**: Do not change the config file from the network; the l2sm-vNet is an abstract interface used by the L2S-M operator to manage the virtual networks in the cluster.
 
