@@ -1,10 +1,12 @@
-#K3s Installation
+# K3s Installation
 Apply the multus descriptor with the following script
-
+````bash
 kubectl create -f ./multus-daemonset.yml 
+````
 
 Install the host-device plugin:
 
+````bash
 sudo apt update
 sudo apt install golang-go
 git clone https://github.com/containernetworking/plugins.git
