@@ -1,0 +1,23 @@
+network:
+    ethernets:
+        vpod1: {}
+        vhost1: {}
+        vpod2: {}
+        vhost2: {}
+        vpod3: {}
+        vhost3: {}
+        vpod4: {}
+        vhost4: {}
+        vpod5: {}
+        vhost5: {}
+        vpod6: {}
+        vhost6: {}
+        vpod7: {}
+        vhost7: {}
+        vpod8: {}
+        vhost8: {}
+        vpod9: {}
+        vhost9: {}
+        vpod10: {}
+        vhost10: {}
+    version: 2

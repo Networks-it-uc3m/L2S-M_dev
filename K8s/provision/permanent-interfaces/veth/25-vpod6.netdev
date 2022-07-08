@@ -1,0 +1,7 @@
+[NetDev]
+Name=vpod6
+Kind=veth
+MTUBytes=1450
+
+[Peer]
+Name=vhost6
