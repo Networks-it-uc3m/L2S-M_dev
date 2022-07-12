@@ -88,14 +88,21 @@ kubectl create -f ./L2S-M/operator/deploy/config/
 kubectl create -f ./L2S-M/operator/deploy/mysql/
 ```
 
-4. After the previous preparation, you can deploy the operator in your cluster using the YAML deployment file:
+4. Before deploying the L2S-M operator, it is neccessary to label your master node as the "master" of the cluster. To do so, get the names of your Kubernetes nodes, select the master and apply the "master" label with the following command:
+
+ ```bash
+kubectl get nodes
+kubectl label nodes [your-master-node] dedicated=master
+```
+
+5. After the previous preparation, you can deploy the operator in your cluster using the YAML deployment file:
  ```bash
 kubectl create -f ./L2S-M/operator/deploy/deployOperator.yaml
 ```
 
  You can check that the deployment was successful if the pod enters the "running" state using the *kubectl get pods* command.
 
-5. Deploy the virtual OVS Daemonset using the following .yaml:
+6. Deploy the virtual OVS Daemonset using the following .yaml:
 ```bash
 kubectl create -f ./L2S-M/operator/daemonset
 ```
