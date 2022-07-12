@@ -45,7 +45,7 @@ This guide details the necessary steps to install the L2S-M Kubernetes operator 
     @reboot sh [directory-where-L2S-M-directory-is-located]/L2S-M/K8s/provision/set-interfaces.sh [interface_to_use] [directory-where-L2S-M-directory-is-located]/L2S-M/K8s/provision/vxlans.txt
     ```
 
-* You may want to manually create the VXLANs instead. **Note: We highly suggest to use the reccomended option described in 3. to keep the configuration across reboots**. To that purpose, you can use the following command for every VXLAN in most Linux distributions:
+* You may want to manually create the VXLANs instead. **Note: We highly suggest to use the reccomended option described in 2. to keep the configuration across reboots**. To that purpose, you can use the following command for every VXLAN in most Linux distributions:
 
     ```bash
     sudo ip link add [vxlan_Name] type vxlan id [id] dev [interface_to_use] dstport [dst_port]
@@ -66,11 +66,11 @@ This guide details the necessary steps to install the L2S-M Kubernetes operator 
     sudo ./L2S-M/K8s/provision/veth.bash
     ```
 
-4. Install the Multus CNI Plugin in your K8s cluster. For more information on how to install Multus in your cluster, check their [official GitHub repository](https://github.com/k8snetworkplumbingwg/multus-cni).
+3. Install the Multus CNI Plugin in your K8s cluster. For more information on how to install Multus in your cluster, check their [official GitHub repository](https://github.com/k8snetworkplumbingwg/multus-cni).
 
-5. The host-device CNI plugin must be able to be used in your cluster. If it is not present in your K8s distribution, you can find how to install it in your K8s cluster in their [official GitHub repository](https://github.com/containernetworking/plugins).
+4. The host-device CNI plugin must be able to be used in your cluster. If it is not present in your K8s distribution, you can find how to install it in your K8s cluster in their [official GitHub repository](https://github.com/containernetworking/plugins).
 
-6. Your K8s Controller node must be able to deploy K8s pods for the operator to work. Remove its master and control-plane taints using the following command:
+5. Your K8s Controller node must be able to deploy K8s pods for the operator to work. Remove its master and control-plane taints using the following command:
 ```bash
 kubectl taint nodes --all node-role.kubernetes.io/control-plane- node-role.kubernetes.io/master-
 ```
