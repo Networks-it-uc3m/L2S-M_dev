@@ -146,7 +146,15 @@ def pod_vn(body, name, namespace, logger, annotations, **kwargs):
 def dpod_vn(name, logger, **kwargs):
     db = pymysql.connect(host=ip,user="l2sm",password="l2sm;",db="L2SM")
     cur = db.cursor()
-    sql = "UPDATE interfaces SET network = '-1', pod = '' WHERE pod = '%s'" % (name)
+    # CHECK IF THE POD HAS NO NODE ATTACH TO IT (I.E. IT IS A SRIOV DEVICE)
+    firstsql = "SELECT * FROM interfaces WHERE pod = '%s' AND node = '-1'" % (name)
+    cur.execute(firstsql)
+    data = cur.fetchall()
+    # IF THE ENTRY HAS A NODE ASSIGNED, UPDATE ITS VALUE IN THE TABLE. OTHERWISE, DELETE ITS ENTRY
+    if not data:
+      sql = "UPDATE interfaces SET network = '-1', pod = '' WHERE pod = '%s'" % (name)
+    else:
+      sql = "DELETE FROM interfaces WHERE pod = '%s' AND node = '-1'" % (name)
     cur.execute(sql)
     db.commit()
     db.close()
