@@ -123,8 +123,8 @@ def pod_vn(body, name, namespace, logger, annotations, **kwargs):
         if splitText[0] in resources:
           physical.update({splitText[0]:splitText[1]})
           multusInt[k] = splitText[1]
-
-      if multusInt[k] in resources:
+          
+      elif multusInt[k] in resources:
         network.append(k)
 
     #IF THERE ARE NO NETWORKS, LET MULTUS HANDLE THIS
