@@ -48,36 +48,10 @@ def create_vn(spec, name, namespace, logger, **kwargs):
     db.close()
     logger.info(f"Network has been created")
 
+#NEW SECTION FROM HERE
 
-#ASSIGN POD TO NETWORK (TRIGGERS ONLY IF ANNOTATION IS PRESENT)
-@kopf.on.create('pods.v1', annotations={'k8s.v1.cni.cncf.io/networks': kopf.PRESENT})
-def pod_vn(body, name, namespace, logger, annotations, **kwargs):
-    #GET MULTUS INTERFACES IN THE DESCRIPTOR
-    #IN QUARANTINE: SLOWER THAN MULTUS!!!!!
-    time.sleep(random.uniform(0,0.8)) #Make sure the database is not consulted at the same time to avoid overlaping
-
-    multusInt = annotations.get('k8s.v1.cni.cncf.io/networks').split(",")
-    #VERIFY IF NETWORK IS PRESENT IN THE CLUSTER
-    api = client.CustomObjectsApi()
-    items = api.list_namespaced_custom_object('k8s.cni.cncf.io', 'v1', namespace, 'network-attachment-definitions').get('items')
-    resources = []
-    # NETWORK POSITION IN ANNOTATION
-    network = []
-
-    #FIND OUR NETWORKS IN MULTUS
-    for i in items:
-      if '"device": "l2sm-vNet"' in i['spec']['config']:
-        resources.append(i['metadata']['name'])
-
-    for k in range(len(multusInt)):
-      multusInt[k] = multusInt[k].strip()
-      if multusInt[k] in resources:
-        network.append(k)
-
-    #IF THERE ARE NO NETWORKS, LET MULTUS HANDLE THIS
-    if not network:
-      return
-
+#ADD POD TO VETH
+def addVeth(body, name, namespace, network, multusInt):
     #CHECK IF NODE HAS FREE VIRTUAL INTERFACES LEFT
     v1 = client.CoreV1Api()
     ret = v1.read_namespaced_pod(name, namespace)
@@ -107,21 +81,62 @@ def pod_vn(body, name, namespace, logger, annotations, **kwargs):
     #PATCH NETWORK WITH ANNOTATION
     v1.patch_namespaced_pod(name, namespace, ret)
 
-    #GET NETWORK ID'S
-    #for j in items:
-    #  if network in j['metadata']['name']:
-    #    idsql = "SELECT id FROM networks WHERE network = '%s'" % (network.strip())
-    #    cur.execute(idsql)
-    #    retrieve = cur.fetchone()
-    #    networkN = retrieve[0].strip()
-    #    break
-
     for m in range(len(network)):
       sql = "UPDATE interfaces SET network = '%s', pod = '%s' WHERE interface = '%s' AND node = '%s'" % (network_array[m], name, interface_to_attach[m], node)
       cur.execute(sql)
 
     db.commit()
     db.close()
+    return network_array
+
+#ADD POD TO SRIOV
+def addSriov():
+  return
+
+#ASSIGN POD TO NETWORK (TRIGGERS ONLY IF ANNOTATION IS PRESENT)
+@kopf.on.create('pods.v1', annotations={'k8s.v1.cni.cncf.io/networks': kopf.PRESENT})
+def pod_vn(body, name, namespace, logger, annotations, **kwargs):
+    #GET MULTUS INTERFACES IN THE DESCRIPTOR
+    #IN QUARANTINE: SLOWER THAN MULTUS!!!!!
+    time.sleep(random.uniform(0,0.8)) #Make sure the database is not consulted at the same time to avoid overlaping
+
+    multusInt = annotations.get('k8s.v1.cni.cncf.io/networks').split(",")
+    #VERIFY IF NETWORK IS PRESENT IN THE CLUSTER
+    api = client.CustomObjectsApi()
+    items = api.list_namespaced_custom_object('k8s.cni.cncf.io', 'v1', namespace, 'network-attachment-definitions').get('items')
+    resources = []
+    # NETWORK POSITION IN ANNOTATION
+    network = []
+    # SRIOV present in the annotation
+    physical = {}
+
+    #FIND OUR NETWORKS IN MULTUS
+    for i in items:
+      if '"device": "l2sm-vNet"' in i['spec']['config']:
+        resources.append(i['metadata']['name'])
+
+    for k in range(len(multusInt)):
+      multusInt[k] = multusInt[k].strip()
+      #IF THERE IS PHYSICAL INTERFACE, ADD TO THE PHYSICAL NETWORK
+      if "#" in multusInt[k]:
+        splitText = multusInt[k].split("#")
+        if splitText[0] in resources:
+          physical.update({splitText[0]:splitText[1]})
+          multusInt[k] = splitText[1]
+
+      if multusInt[k] in resources:
+        network.append(k)
+
+    #IF THERE ARE NO NETWORKS, LET MULTUS HANDLE THIS
+    if not network and not physical:
+      return
+    else:
+      if network:
+        network_array = addVeth(body, name, namespace, network, multusInt)
+      if physical:
+        #network_array = addSriov(body, name, namespace, physical, multusInt)
+        print("todo")
+
     #HERE GOES SDN, THIS IS WHERE THE FUN BEGINS
     logger.info(f"Pod {name} attached to network {network_array}")
 
