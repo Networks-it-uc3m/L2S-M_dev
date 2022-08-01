@@ -21,15 +21,15 @@ def build_db(body, logger, annotations, **kwargs):
     cur = db.cursor()
     #CREATE TABLES IF THEY DO NOT EXIST
     table1 = "CREATE TABLE IF NOT EXISTS networks (network TEXT NOT NULL, id TEXT NOT NULL);"
-    table2 = "CREATE TABLE IF NOT EXISTS interfaces (interface TEXT NOT NULL, node TEXT NOT NULL, network TEXT, pod TEXT);"
+    table2 = "CREATE TABLE IF NOT EXISTS interfaces (interface TEXT NOT NULL, node TEXT NOT NULL, network TEXT, pod TEXT, mac TEXT);"
     cur.execute(table1)
     cur.execute(table2)
     db.commit()
     values = []
     #MODIFY THE END VALUE TO ADD MORE INTERFACES
     for i in range(1,11):
-      values.append(['vpod'+str(i), body['spec']['nodeName'], '-1', ''])
-    sql = "INSERT INTO interfaces (interface, node, network, pod) VALUES (%s, %s, %s, %s)"
+      values.append(['vpod'+str(i), body['spec']['nodeName'], '-1', '', ''])
+    sql = "INSERT INTO interfaces (interface, node, network, pod, mac) VALUES (%s, %s, %s, %s, %s)"
     cur.executemany(sql, values)
     db.commit()
     db.close()
@@ -146,15 +146,7 @@ def pod_vn(body, name, namespace, logger, annotations, **kwargs):
 def dpod_vn(name, logger, **kwargs):
     db = pymysql.connect(host=ip,user="l2sm",password="l2sm;",db="L2SM")
     cur = db.cursor()
-    # CHECK IF THE POD HAS NO NODE ATTACH TO IT (I.E. IT IS A SRIOV DEVICE)
-    firstsql = "SELECT * FROM interfaces WHERE pod = '%s' AND node = '-1'" % (name)
-    cur.execute(firstsql)
-    data = cur.fetchall()
-    # IF THE ENTRY HAS A NODE ASSIGNED, UPDATE ITS VALUE IN THE TABLE. OTHERWISE, DELETE ITS ENTRY
-    if not data:
-      sql = "UPDATE interfaces SET network = '-1', pod = '' WHERE pod = '%s'" % (name)
-    else:
-      sql = "DELETE FROM interfaces WHERE pod = '%s' AND node = '-1'" % (name)
+    sql = "UPDATE interfaces SET network = '-1', mac = '', pod = '' WHERE pod = '%s'" % (name)
     cur.execute(sql)
     db.commit()
     db.close()
