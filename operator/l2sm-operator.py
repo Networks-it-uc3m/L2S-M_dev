@@ -44,14 +44,29 @@ def create_vn(spec, name, namespace, logger, **kwargs):
     id = secrets.token_hex(32)
     sql = "INSERT INTO networks (network, id) VALUES ('%s', '%s')" % (name.strip(), id.strip())
     cur.execute(sql)
+
     db.commit()
     db.close()
     logger.info(f"Network has been created")
 
-#NEW SECTION FROM HERE
+#ADD POD TO SRIOV BY CREATING A NEW ENTRY IN THE DB TABLE WITH THE MULTUS ANNOTATION NAME (USED TO FIND THE PCI LATER, SINCE IT IS ASSIGNED WHEN THE POD IS RUNNING, NOT BEFOREHAND)
+def addSriov(body, name, namespace, physical, v1):
+    node = body['spec']['nodeName']
+    ret = v1.read_namespaced_pod(name, namespace)
+
+    db = pymysql.connect(host=ip,user="l2sm",password="l2sm;",db="L2SM")
+    cur = db.cursor()
+
+    for inter, net in physical.items():
+      sql = "INSERT INTO interfaces (interface, node, network, pod, mac) VALUES ('%s', '%s', '%s', '%s', '%s')" % (inter, node, net, name, '')
+      cur.execute(sql)
+
+    db.commit()
+    db.close()
+    return
 
 #ADD POD TO VETH
-def addVeth(body, name, namespace, network, multusInt):
+def addVeth(body, name, namespace, network, physical, multusInt):
     #CHECK IF NODE HAS FREE VIRTUAL INTERFACES LEFT
     v1 = client.CoreV1Api()
     ret = v1.read_namespaced_pod(name, namespace)
@@ -87,11 +102,10 @@ def addVeth(body, name, namespace, network, multusInt):
 
     db.commit()
     db.close()
-    return network_array
 
-#ADD POD TO SRIOV
-def addSriov():
-  return
+    addSriov(body, name, namespace, physical, v1)
+
+    return network_array
 
 #ASSIGN POD TO NETWORK (TRIGGERS ONLY IF ANNOTATION IS PRESENT)
 @kopf.on.create('pods.v1', annotations={'k8s.v1.cni.cncf.io/networks': kopf.PRESENT})
@@ -117,11 +131,11 @@ def pod_vn(body, name, namespace, logger, annotations, **kwargs):
 
     for k in range(len(multusInt)):
       multusInt[k] = multusInt[k].strip()
-      #IF THERE IS PHYSICAL INTERFACE, ADD TO THE PHYSICAL NETWORK
+      #IF THERE IS PHYSICAL INTERFACE, ADD TO THE PHYSICAL NETWORK (FORMAT => NETWORK:INTERFACE)
       if "#" in multusInt[k]:
         splitText = multusInt[k].split("#")
         if splitText[0] in resources:
-          physical.update({splitText[0]:splitText[1]})
+          physical.update({splitText[1]:splitText[0]})
           multusInt[k] = splitText[1]
           
       elif multusInt[k] in resources:
@@ -132,22 +146,82 @@ def pod_vn(body, name, namespace, logger, annotations, **kwargs):
       return
     else:
       if network:
-        network_array = addVeth(body, name, namespace, network, multusInt)
-      if physical:
+        #TODO: CALL THE ADD SRIOV INSIDE, SINCE THE POD IS PATCHED AS WELL -> PASS THE PHYSICAL AS WELL.
+        network_array = addVeth(body, name, namespace, network, physical, multusInt)
+        logger.info(f"Pod {name} attached to network {network_array}")
+      elif physical:
         #network_array = addSriov(body, name, namespace, physical, multusInt)
-        print("todo")
+        v1 = client.CoreV1Api()
+        ret = v1.read_namespaced_pod(name, namespace)
+        ret.metadata.annotations['k8s.v1.cni.cncf.io/networks'] = ', '.join(multusInt)
+        v1.patch_namespaced_pod(name, namespace, ret)
+        addSriov(body, name, namespace, physical, v1) 
+        logger.info(f"Pod attached to SRIOV")
 
-    #HERE GOES SDN, THIS IS WHERE THE FUN BEGINS
-    logger.info(f"Pod {name} attached to network {network_array}")
+#GET MACS FROM ANNOTATIONS (VPOD CASE) OR REMOTE POD (SRIOV CASE) AND GENERATE THE INTENTS
+@kopf.on.update('pods.v1', annotations={'k8s.v1.cni.cncf.io/network-status': kopf.PRESENT, 'k8s.v1.cni.cncf.io/networks': kopf.PRESENT})
+def sdn_vn(body, name, namespace, logger, annotations, **kwargs):
+    db = pymysql.connect(host=ip,user="l2sm",password="l2sm;",db="L2SM")
+    # GET ALL INTERFACES ASSIGNED FOR THE POD
+    nsql = "SELECT interface FROM interfaces WHERE pod = '%s'" % (name)
+    cur = db.cursor()
+    cur.execute(nsql)
+    data = cur.fetchall()
+
+    if not data:
+      return
+    
+    #GET NETWORKS STATUS
+    multus = json.loads(annotations['k8s.v1.cni.cncf.io/network-status'])
+    devices = []
+
+    for k in range(len(data)):
+      devices.append(data[k][0])
+
+    # IF NAMESPACE HAS THE NAMESPACE ATTACHED, GET THE SPLIT (SINCE THE NAMESPACE IS BEHIND THE INTERFACE ALWAYS (default/vpod1)). OTHERWISE, PROCCESSN IT AS IS.
+    for i in multus:
+      tempName = ''
+      if len(i['name'].split('/')) == 1:
+        tempName = i['name']
+      else:
+        tempName = i['name'].split('/')[1]
+
+      if tempName in devices:
+        # IF IT IS AN SRIOV INTERFACE, ASK THE REMOTE POD FOR THE MAC.
+        if "device-info" in i and i['device-info']['type'] == "pci":
+          # getPHYMAC
+          # cur.execute(sql)
+          pass
+        # IF IT IS A VIRTUAL INTERFACE, GET THE MAC FROM THE ANNOTATION
+        else:
+          sql = "UPDATE interfaces SET mac = '%s' WHERE pod = '%s' AND interface = '%s'" % (i['mac'], name, tempName)
+          cur.execute(sql)
+  
+    db.commit()
+    db.close()    
 
 
-#UPDATE DATABASE WHEN POD IS DELETED
+
+#UPDATE DATABASE WHEN POD IS DELETED (REMOVE ENTRY FROM DATABASE IF IT IS NOT A VPOD ANNOTATION)
 @kopf.on.delete('pods.v1', annotations={'k8s.v1.cni.cncf.io/networks': kopf.PRESENT})
 def dpod_vn(name, logger, **kwargs):
+    vpod = ['vpod1', 'vpod2', 'vpod3', 'vpod4', 'vpod5', 'vpod6', 'vpod7', 'vpod8', 'vpod9', 'vpod10']
     db = pymysql.connect(host=ip,user="l2sm",password="l2sm;",db="L2SM")
     cur = db.cursor()
-    sql = "UPDATE interfaces SET network = '-1', mac = '', pod = '' WHERE pod = '%s'" % (name)
-    cur.execute(sql)
+    msql = "SELECT interface FROM interfaces WHERE pod = '%s'" % (name)
+    cur.execute(msql)
+    data = cur.fetchall()
+
+    if not data:
+      return
+
+    for i in range(len(data)):
+      if data[i][0] in vpod:
+        sql = "UPDATE interfaces SET network = '-1', mac = '', pod = '' WHERE pod = '%s' AND interface = '%s'" % (name, data[i][0])
+      else:
+        sql = "DELETE from interfaces WHERE interface = '%s'" % (data[i][0])
+      cur.execute(sql)
+
     db.commit()
     db.close()
     logger.info(f"Pod {name} removed")
