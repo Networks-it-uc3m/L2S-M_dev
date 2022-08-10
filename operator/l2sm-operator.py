@@ -1,13 +1,7 @@
 import kopf
-import os
-import sys
 import json
-import subprocess
 import secrets
-import kubernetes
-from subprocess import CalledProcessError
-from random import randrange
-from kubernetes import client, config
+from kubernetes import client
 import pymysql
 import random
 import time
@@ -52,7 +46,6 @@ def create_vn(spec, name, namespace, logger, **kwargs):
 #ADD POD TO SRIOV BY CREATING A NEW ENTRY IN THE DB TABLE WITH THE MULTUS ANNOTATION NAME (USED TO FIND THE PCI LATER, SINCE IT IS ASSIGNED WHEN THE POD IS RUNNING, NOT BEFOREHAND)
 def addSriov(body, name, namespace, physical, v1):
     node = body['spec']['nodeName']
-    ret = v1.read_namespaced_pod(name, namespace)
 
     db = pymysql.connect(host=ip,user="l2sm",password="l2sm;",db="L2SM")
     cur = db.cursor()
@@ -160,7 +153,8 @@ def pod_vn(body, name, namespace, logger, annotations, **kwargs):
 
 #GET MACS FROM ANNOTATIONS (VPOD CASE) OR REMOTE POD (SRIOV CASE) AND GENERATE THE INTENTS
 @kopf.on.update('pods.v1', annotations={'k8s.v1.cni.cncf.io/network-status': kopf.PRESENT, 'k8s.v1.cni.cncf.io/networks': kopf.PRESENT})
-def sdn_vn(body, name, namespace, logger, annotations, **kwargs):
+def sdn_vn(name, logger, annotations, **kwargs):
+
     db = pymysql.connect(host=ip,user="l2sm",password="l2sm;",db="L2SM")
     # GET ALL INTERFACES ASSIGNED FOR THE POD
     nsql = "SELECT interface FROM interfaces WHERE pod = '%s'" % (name)
@@ -189,7 +183,8 @@ def sdn_vn(body, name, namespace, logger, annotations, **kwargs):
       if tempName in devices:
         # IF IT IS AN SRIOV INTERFACE, ASK THE REMOTE POD FOR THE MAC.
         if "device-info" in i and i['device-info']['type'] == "pci":
-          # getPHYMAC
+          # mac = getPhyMac(nodeIp, i['device-info']['pci']['pci-address'])
+          # sql = "UPDATE interfaces SET mac = '%s' WHERE pod = '%s' AND interface = '%s'" % (mac, name, tempName)
           # cur.execute(sql)
           pass
         # IF IT IS A VIRTUAL INTERFACE, GET THE MAC FROM THE ANNOTATION
@@ -228,7 +223,7 @@ def dpod_vn(name, logger, **kwargs):
 
 #UPDATE DATABASE WHEN NETWORK IS DELETED
 @kopf.on.delete('NetworkAttachmentDefinition', when=lambda spec, **_: '"device": "l2sm-vNet"' in spec['config'])
-def delete_vn(spec, name, logger, **kwargs):
+def delete_vn(name, logger, **kwargs):
     db = pymysql.connect(host=ip,user="l2sm",password="l2sm;",db="L2SM")
     cur = db.cursor()
     sql = "DELETE FROM networks WHERE network = '%s'" % (name)
@@ -239,7 +234,7 @@ def delete_vn(spec, name, logger, **kwargs):
 
 #DELETE DATABASE ENTRIES WHEN A NEW L2SM POD IS DELETED (A NEW NODE GETS OUT OF THE CLUSTER)
 @kopf.on.delete('pods.v1', labels={'l2sm-component': 'l2-ps'})
-def remove_node(body, logger, annotations, **kwargs):
+def remove_node(body, logger, **kwargs):
     db = pymysql.connect(host=ip,user="l2sm",password="l2sm;",db="L2SM")
     cur = db.cursor()
     sql = "DELETE FROM interfaces WHERE node = '%s'" % (body['spec']['nodeName'])
@@ -247,4 +242,15 @@ def remove_node(body, logger, annotations, **kwargs):
     db.commit()
     db.close()
     logger.info(f"Node {body['spec']['nodeName']} has been deleted from the cluster")
+
+#DELETE DATABASE ENTRIES WHEN A NEW L2SM POD IS DELETED (A NEW NODE GETS OUT OF THE CLUSTER)
+@kopf.on.delete('pods.v1', labels={'l2sm-component': 'l2sm-pci'})
+def remove_pci(body, logger, **kwargs):
+    db = pymysql.connect(host=ip,user="l2sm",password="l2sm;",db="L2SM")
+    cur = db.cursor()
+    sql = "DELETE FROM pci WHERE node = '%s'" % (body['spec']['nodeName'])
+    cur.execute(sql)
+    db.commit()
+    db.close()
+    logger.info(f"PCI in {body['spec']['nodeName']} has been deleted from the cluster")
 

@@ -18,6 +18,13 @@ spec:
       containers:
       - image: l2sm-dev:dev
         name: l2sm-opt-pod
+        resources:
+          limits:
+            cpu: "500m"
+            memory: "128Mi"
+          requests:
+            cpu: "250m"
+            memory: "64Mi"
       - image: mysql/mysql-server:latest
         imagePullPolicy: IfNotPresent
         name: mysql
@@ -36,6 +43,13 @@ spec:
         volumeMounts:
           - name: mysql-persistent-storage
             mountPath: /var/lib/mysql
+        resources:
+          limits:
+            cpu: "1"
+            memory: "1G"
+          requests:
+            cpu: "500m"
+            memory: "512M"
       volumes:
         - name: mysql-persistent-storage
           persistentVolumeClaim:
