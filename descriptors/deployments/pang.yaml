@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ping-l2sm
+  name: pang-l2sm
 spec:
   replicas: 1
   selector:
@@ -12,10 +12,10 @@ spec:
       labels:
         app: ping-pong
       annotations:
-        k8s.v1.cni.cncf.io/networks: my-second-network#sriov-net2
+        k8s.v1.cni.cncf.io/networks: my-second-network#sriov-net3
     spec:
       containers: 
-      - name: ping
+      - name: pang
         command: ["/bin/ash", "-c", "trap : TERM INT; sleep infinity & wait"]
         image: alpine:latest
         resources:

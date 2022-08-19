@@ -25,6 +25,9 @@ spec:
           requests:
             cpu: "250m"
             memory: "64Mi"
+        env:
+          - name: CONTROLLER
+            value: http://onos:rocks@10.68.48.9:8181
       - image: mysql/mysql-server:latest
         imagePullPolicy: IfNotPresent
         name: mysql

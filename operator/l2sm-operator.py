@@ -1,3 +1,5 @@
+import itertools
+import logging
 import kopf
 import json
 import secrets
@@ -5,6 +7,10 @@ from kubernetes import client
 import pymysql
 import random
 import time
+import os
+from typing import Annotated
+
+import aiohttp
 
 ip = "127.0.0.1"
 
@@ -14,10 +20,12 @@ def build_db(body, logger, annotations, **kwargs):
     db = pymysql.connect(host=ip,user="l2sm",password="l2sm;",db="L2SM")
     cur = db.cursor()
     #CREATE TABLES IF THEY DO NOT EXIST
-    table1 = "CREATE TABLE IF NOT EXISTS networks (network TEXT NOT NULL, id TEXT NOT NULL);"
+    table1 = "CREATE TABLE IF NOT EXISTS networks (network TEXT NOT NULL, id TEXT NOT NULL, vlan TEXT NOT NULL);"
     table2 = "CREATE TABLE IF NOT EXISTS interfaces (interface TEXT NOT NULL, node TEXT NOT NULL, network TEXT, pod TEXT, mac TEXT);"
+    table3 = "CREATE TABLE IF NOT EXISTS intents (mac_one TEXT, mac_two TEXT, id TEXT);"
     cur.execute(table1)
     cur.execute(table2)
+    cur.execute(table3)
     db.commit()
     values = []
     #MODIFY THE END VALUE TO ADD MORE INTERFACES
@@ -36,23 +44,42 @@ def create_vn(spec, name, namespace, logger, **kwargs):
     db = pymysql.connect(host=ip,user="l2sm",password="l2sm;",db="L2SM")
     cur = db.cursor()
     id = secrets.token_hex(32)
-    sql = "INSERT INTO networks (network, id) VALUES ('%s', '%s')" % (name.strip(), id.strip())
-    cur.execute(sql)
+    vlan = json.loads(spec['config'])
 
+    # IF NO VLAN TAG IS PRESENT IN THE DESCRIPTOR, ADD A 0 (WHICH WILL BE USED AS THE VALUE FOR DEFAULT)
+    if not "vlan" in vlan:
+      sql = "INSERT INTO networks (network, id, vlan) VALUES ('%s', '%s', '0')" % (name.strip(), id.strip())
+    else:
+      sql = "INSERT INTO networks (network, id, vlan) VALUES ('%s', '%s', '%s')" % (name.strip(), id.strip(), vlan['vlan'])
+
+    cur.execute(sql)
     db.commit()
+
     db.close()
     logger.info(f"Network has been created")
 
 #ADD POD TO SRIOV BY CREATING A NEW ENTRY IN THE DB TABLE WITH THE MULTUS ANNOTATION NAME (USED TO FIND THE PCI LATER, SINCE IT IS ASSIGNED WHEN THE POD IS RUNNING, NOT BEFOREHAND)
-def addSriov(body, name, namespace, physical, v1):
+# PATCH THE MULTUS ANNOTATION OF THE SRIOV WITH THE CORRESPONDING VLAN TAG THAT IS USED FOR THE VIRTUAL NETWORK
+def addSriov(body, name, namespace, physical):
     node = body['spec']['nodeName']
-
+    api = client.CustomObjectsApi()
     db = pymysql.connect(host=ip,user="l2sm",password="l2sm;",db="L2SM")
     cur = db.cursor()
 
     for inter, net in physical.items():
       sql = "INSERT INTO interfaces (interface, node, network, pod, mac) VALUES ('%s', '%s', '%s', '%s', '%s')" % (inter, node, net, name, '')
       cur.execute(sql)
+
+      nsql = "SELECT vlan FROM networks WHERE network = '%s'" % (net)
+      cur.execute(nsql)
+      vlan = cur.fetchone()
+
+      ret = api.get_namespaced_custom_object('k8s.cni.cncf.io', 'v1', namespace, 'network-attachment-definitions', inter)
+      conf = json.loads(ret['spec']['config'])
+      conf.update({"vlan": int(vlan[0])})
+      ret['spec']['config'] = json.dumps(conf)
+      api.patch_namespaced_custom_object('k8s.cni.cncf.io', 'v1', namespace, 'network-attachment-definitions', inter, ret)
+
 
     db.commit()
     db.close()
@@ -61,6 +88,8 @@ def addSriov(body, name, namespace, physical, v1):
 #ADD POD TO VETH
 def addVeth(body, name, namespace, network, physical, multusInt):
     #CHECK IF NODE HAS FREE VIRTUAL INTERFACES LEFT
+    if physical:
+      addSriov(body, name, namespace, physical)
     v1 = client.CoreV1Api()
     ret = v1.read_namespaced_pod(name, namespace)
     node = body['spec']['nodeName']
@@ -96,8 +125,6 @@ def addVeth(body, name, namespace, network, physical, multusInt):
     db.commit()
     db.close()
 
-    addSriov(body, name, namespace, physical, v1)
-
     return network_array
 
 #ASSIGN POD TO NETWORK (TRIGGERS ONLY IF ANNOTATION IS PRESENT)
@@ -105,7 +132,7 @@ def addVeth(body, name, namespace, network, physical, multusInt):
 def pod_vn(body, name, namespace, logger, annotations, **kwargs):
     #GET MULTUS INTERFACES IN THE DESCRIPTOR
     #IN QUARANTINE: SLOWER THAN MULTUS!!!!!
-    time.sleep(random.uniform(0,0.8)) #Make sure the database is not consulted at the same time to avoid overlaping
+    time.sleep(random.uniform(0,2)) #Make sure the database is not consulted at the same time to avoid overlaping
 
     multusInt = annotations.get('k8s.v1.cni.cncf.io/networks').split(",")
     #VERIFY IF NETWORK IS PRESENT IN THE CLUSTER
@@ -144,16 +171,59 @@ def pod_vn(body, name, namespace, logger, annotations, **kwargs):
         logger.info(f"Pod {name} attached to network {network_array}")
       elif physical:
         #network_array = addSriov(body, name, namespace, physical, multusInt)
+        addSriov(body, name, namespace, physical)
         v1 = client.CoreV1Api()
         ret = v1.read_namespaced_pod(name, namespace)
         ret.metadata.annotations['k8s.v1.cni.cncf.io/networks'] = ', '.join(multusInt)
         v1.patch_namespaced_pod(name, namespace, ret)
-        addSriov(body, name, namespace, physical, v1) 
         logger.info(f"Pod attached to SRIOV")
+
+
+
+# ([new_pod_mac1, ...], [old-macs-from-the-vn, ...])
+def get_macs(name, db, cur) -> 'list[tuple[list[str], list[str]]]':
+    nsql = "SELECT network FROM interfaces WHERE pod = '%s'" % (name)
+    cur = db.cursor()
+    cur.execute(nsql)
+    data = cur.fetchall()
+
+    networks = []
+    sdn_arrays = []
+
+    for k in range(len(data)):
+      networks.append(data[k][0])
+    
+    netDict = list(dict.fromkeys(networks))
+
+    for l in range(len(netDict)):
+      netTuple = [] # Will be turned into a tuple later
+      netArray = [] # Variable for the macs of other pods in the network
+      podMacs = [] # Variable for the macs of the pod
+      vsql = "SELECT mac FROM interfaces WHERE network = '%s' AND pod = '%s'" % (netDict[l], name)
+      cur.execute(vsql)
+      data = cur.fetchall()
+      for m in range(len(data)):
+        podMacs.append(data[m][0])
+
+      netTuple.append(podMacs)
+
+      wsql = "SELECT mac FROM interfaces WHERE network = '%s' AND pod != '%s'" % (netDict[l], name)
+      cur.execute(wsql)
+      macs = cur.fetchall()
+      if len(macs) == 0:
+        pass
+      else:
+        for i in range(len(macs)):
+          netArray.append(macs[i][0])
+      netTuple.append(netArray)
+      sdn_arrays.append(tuple(netTuple))
+
+    return sdn_arrays
+
 
 #GET MACS FROM ANNOTATIONS (VPOD CASE) OR REMOTE POD (SRIOV CASE) AND GENERATE THE INTENTS
 @kopf.on.update('pods.v1', annotations={'k8s.v1.cni.cncf.io/network-status': kopf.PRESENT, 'k8s.v1.cni.cncf.io/networks': kopf.PRESENT})
-def sdn_vn(name, logger, annotations, **kwargs):
+async def sdn_vn(body, name, namespace, logger, annotations, **kwargs):
 
     db = pymysql.connect(host=ip,user="l2sm",password="l2sm;",db="L2SM")
     # GET ALL INTERFACES ASSIGNED FOR THE POD
@@ -181,17 +251,51 @@ def sdn_vn(name, logger, annotations, **kwargs):
         tempName = i['name'].split('/')[1]
 
       if tempName in devices:
-        # IF IT IS AN SRIOV INTERFACE, ASK THE REMOTE POD FOR THE MAC.
+        # IF THE ANNOTATION CORRESPONDS TO A PCI INTERFACE (SRIOV)
         if "device-info" in i and i['device-info']['type'] == "pci":
-          # mac = getPhyMac(nodeIp, i['device-info']['pci']['pci-address'])
-          # sql = "UPDATE interfaces SET mac = '%s' WHERE pod = '%s' AND interface = '%s'" % (mac, name, tempName)
-          # cur.execute(sql)
-          pass
+          api = client.CustomObjectsApi()
+          mult = api.get_namespaced_custom_object('k8s.cni.cncf.io', 'v1', namespace, 'network-attachment-definitions', tempName)
+          conf = json.loads(mult['spec']['config'])
+          # CHECK IF THE MAC ADDRESS MUST BE CONFIGURED BY MULTUS. IF SO, UPDATE THE PCI TABLE
+          if 'mac' in conf:
+            annotationMac = conf['mac']
+            pciUpdate = "UPDATE pci SET mac = '%s' WHERE pci = '%s' and node = '%s'" % (annotationMac, "PCI:" + i['device-info']['pci']['pci-address'], body['spec']['nodeName'])
+            cur.execute(pciUpdate)
+            db.commit()
+          
+          # GET VLAN TAG VALUE IN MULTUS ANNOTATION (IF 0, USE -1 TO TELL ONOS THAT NO TAG IS USED)
+          vlan = '/' + str(conf['vlan'])
+          if vlan == '/0':
+            vlan = '/-1'
+
+          # GET THE MAC ADDRESS OF THE PCI IN ITS TABLE
+          msql = "SELECT mac FROM pci WHERE pci = '%s' and node = '%s'" % ("PCI:" + i['device-info']['pci']['pci-address'], body['spec']['nodeName'])
+          cur.execute(msql)
+          val = cur.fetchone()
+
+          # UPDATE THE MAC VALUE IN THE INTERFACES TABLE
+          xsql = "UPDATE interfaces SET mac = '%s' WHERE pod = '%s' AND interface = '%s'" % (val[0] + vlan, name, tempName)
+          cur.execute(xsql)
+
         # IF IT IS A VIRTUAL INTERFACE, GET THE MAC FROM THE ANNOTATION
         else:
-          sql = "UPDATE interfaces SET mac = '%s' WHERE pod = '%s' AND interface = '%s'" % (i['mac'], name, tempName)
+          sql = "UPDATE interfaces SET mac = '%s' WHERE pod = '%s' AND interface = '%s'" % (i['mac'] + '/-1', name, tempName)
           cur.execute(sql)
-  
+    
+    macList = get_macs(name, db, cur)
+    logger.info(f"{macList}")
+
+    sdnCon = OnosHost2HostConnectivityIntent(os.environ.get('CONTROLLER'))
+
+    for net in macList:
+      if len(net[1]) > 0:
+        for one, two in itertools.product(net[0], net[1]):
+          logger.info(f"Intent to perform: One {one} <-> Two {two} in {os.environ.get('CONTROLLER')}")
+          intent_id = await sdnCon.create(one , two)
+          logger.info(f"{intent_id}")
+          jsql = "INSERT INTO intents (mac_one, mac_two, id) VALUES ('%s', '%s', '%s')" % (one, two, intent_id)
+          cur.execute(jsql)
+    
     db.commit()
     db.close()    
 
@@ -199,23 +303,38 @@ def sdn_vn(name, logger, annotations, **kwargs):
 
 #UPDATE DATABASE WHEN POD IS DELETED (REMOVE ENTRY FROM DATABASE IF IT IS NOT A VPOD ANNOTATION)
 @kopf.on.delete('pods.v1', annotations={'k8s.v1.cni.cncf.io/networks': kopf.PRESENT})
-def dpod_vn(name, logger, **kwargs):
+async def dpod_vn(name, logger, **kwargs):
     vpod = ['vpod1', 'vpod2', 'vpod3', 'vpod4', 'vpod5', 'vpod6', 'vpod7', 'vpod8', 'vpod9', 'vpod10']
     db = pymysql.connect(host=ip,user="l2sm",password="l2sm;",db="L2SM")
     cur = db.cursor()
-    msql = "SELECT interface FROM interfaces WHERE pod = '%s'" % (name)
+
+    sdnCon = OnosHost2HostConnectivityIntent(os.environ.get('CONTROLLER'))
+
+    msql = "SELECT interface, mac FROM interfaces WHERE pod = '%s'" % (name)
     cur.execute(msql)
     data = cur.fetchall()
 
     if not data:
       return
 
+    # DELETE THE INTENTS FROM THE DATABASE
     for i in range(len(data)):
+      isql = "SELECT id FROM intents WHERE mac_one = '%s' OR mac_two = '%s'" % (data[i][1], data[i][1])
+      cur.execute(isql)
+      intent = cur.fetchall()
+      if intent:
+        for k in range(len(intent)):
+          await sdnCon.delete(intent[k][0])
+          dsql = "DELETE from intents WHERE id = '%s'" % (intent[k][0])
+          cur.execute(dsql)
+
+      # EITHER UPDATE THE VIRTUAL INTERFACE OR DELETE THE PHYSICAL 
       if data[i][0] in vpod:
         sql = "UPDATE interfaces SET network = '-1', mac = '', pod = '' WHERE pod = '%s' AND interface = '%s'" % (name, data[i][0])
       else:
         sql = "DELETE from interfaces WHERE interface = '%s'" % (data[i][0])
       cur.execute(sql)
+
 
     db.commit()
     db.close()
@@ -254,3 +373,45 @@ def remove_pci(body, logger, **kwargs):
     db.close()
     logger.info(f"PCI in {body['spec']['nodeName']} has been deleted from the cluster")
 
+
+class OnosHost2HostConnectivityIntent:
+    def __init__(self, address: str):
+        self.address = address
+
+    async def create(self, host1: str, host2: str, **opts: dict) -> str:
+        """
+        Create a connectivity intent in ONOS and returns the intent ID.
+        The ``host1`` and ``host2`` arguments should represent a MAC address +
+        port, e.g. "00:00:00:00:00:01/-1". When port is -1, no port filtering
+        will be made.
+        ``opts`` can be used to add arbitrary fields to the request payload.
+        """
+        url = f"{self.address}/onos/v1/intents"
+        intent: dict = {
+            "type": "HostToHostIntent",
+            "appId": "org.onosproject.net.intent",
+            "one": host1,
+            "two": host2,
+            **opts,
+        }
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=intent) as response:
+                if response.status >= 400:
+                    error = await response.read()
+                    raise aiohttp.ClientError(error, {"intent": intent})
+                location: str = response.headers["location"]
+                _, _, intent_id = location.strip("/").rpartition("/")
+                if not intent_id:
+                    raise aiohttp.ClientError("Invalid response", response.headers)
+                return intent_id
+
+    async def delete(self, intent_id: str) -> dict:
+        """Remove a connectivity intent from ONOS"""
+        url = f"{self.address}/onos/v1/intents/org.onosproject.net.intent/{intent_id}"
+        async with aiohttp.ClientSession() as session:
+            async with session.delete(url) as response:
+                if response.status >= 400:
+                    error = await response.read()
+                    raise aiohttp.ClientError(error)
+                text = await response.text()
+                return json.loads(text or "null")

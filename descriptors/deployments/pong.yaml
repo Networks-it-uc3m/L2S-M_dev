@@ -12,7 +12,7 @@ spec:
       labels:
         app: ping-pong
       annotations:
-        k8s.v1.cni.cncf.io/networks: my-first-network
+        k8s.v1.cni.cncf.io/networks: my-second-network#sriov-net1
     spec:
       containers: 
       - name: pong
@@ -21,5 +21,10 @@ spec:
         securityContext:
           capabilities:
             add: ["NET_ADMIN"]
+        resources:
+          requests:
+            intel.com/intel_sriov_netdevice: '1'
+          limits:
+            intel.com/intel_sriov_netdevice: '1'
       # Use this parameter if you want to place the pod in a specific node
-      nodeName: rex 
+      # nodeName: rex 
