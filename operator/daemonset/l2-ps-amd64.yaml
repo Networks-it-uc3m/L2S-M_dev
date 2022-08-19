@@ -67,7 +67,7 @@ spec:
         effect: NoSchedule
       hostNetwork: true
       containers:
-      - name: l2-pci
+      - name: l2sm-pci
         image: l2sm-pci:dev
         imagePullPolicy: Never
         env:
