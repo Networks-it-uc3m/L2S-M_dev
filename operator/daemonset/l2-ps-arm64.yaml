@@ -43,3 +43,43 @@ spec:
             add: ["NET_ADMIN"]
       nodeSelector:
         kubernetes.io/arch: arm64
+
+---
+
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: l2sm-pci
+  #namespace: kube-system
+  labels:
+    l2sm-component: l2sm-pci
+spec:
+  selector:
+    matchLabels:
+      l2sm-component: l2sm-pci
+  template:
+    metadata:
+      labels:
+        l2sm-component: l2sm-pci
+    spec:
+      tolerations:
+      # this toleration is to have the daemonset runnable on master nodes
+      # remove it if your masters can't run pods
+      - key: node-role.kubernetes.io/master
+        operator: Exists
+        effect: NoSchedule
+      hostNetwork: true
+      containers:
+      - name: l2sm-pci
+        image: l2sm-pci:dev
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        securityContext:
+          capabilities:
+            add: ["NET_ADMIN"]
+      nodeSelector:
+        kubernetes.io/arch: arm64
