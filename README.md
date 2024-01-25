@@ -7,7 +7,4 @@ If you want to learn how to install L2S-M in your cluster, see the [installation
 
 Did you already install the operator and  you cannot wait to start building your own virtual networks in your K8s cluster? Check out our [ping-pong](https://github.com/Networks-it-uc3m/L2S-M/tree/main/descriptors) example!
 
-###How to reach us
-
-If you have any doubts about L2S-M or its instalaltion, please do not hesitate to contact us out through our e-mail!
-- Luis F. Gonzalez: luisfgon@it.uc3m.es (Universidad Carlos III de Madrid)
+VISIT THE OFFICIAL L2S-M REPOSITORY FOR STABLE VERSIONS, THIS REPO IS UNDER DEVELOPMENT
